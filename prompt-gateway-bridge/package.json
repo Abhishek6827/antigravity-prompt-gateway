@@ -19,7 +19,7 @@
         {
           "id": "prompt-gateway-explorer",
           "title": "Prompt Gateway",
-          "icon": "$(sparkles)"
+          "icon": "sparkles.svg"
         }
       ]
     },
