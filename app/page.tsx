@@ -98,10 +98,70 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [sent, setSent] = useState(false);
   const [undoSnapshot, setUndoSnapshot] = useState<UndoSnapshot | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const clarificationRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    const savedMessages = localStorage.getItem("prompt_gateway_messages");
+    const savedResult = localStorage.getItem("prompt_gateway_result");
+    const savedUndo = localStorage.getItem("prompt_gateway_undo");
+
+    if (savedMessages) {
+      try {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setMessages(JSON.parse(savedMessages));
+      } catch (e) {
+        console.error("Failed to parse saved messages", e);
+      }
+    }
+    if (savedResult) {
+      try {
+        setResult(JSON.parse(savedResult));
+      } catch (e) {
+        console.error("Failed to parse saved result", e);
+      }
+    }
+    if (savedUndo) {
+      try {
+        setUndoSnapshot(JSON.parse(savedUndo));
+      } catch (e) {
+        console.error("Failed to parse saved undo snapshot", e);
+      }
+    }
+    setIsLoaded(true);
+  }, []);
+
+  // Save to localStorage when state changes
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (messages.length > 0) {
+      localStorage.setItem("prompt_gateway_messages", JSON.stringify(messages));
+    } else {
+      localStorage.removeItem("prompt_gateway_messages");
+    }
+  }, [messages, isLoaded]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (result) {
+      localStorage.setItem("prompt_gateway_result", JSON.stringify(result));
+    } else {
+      localStorage.removeItem("prompt_gateway_result");
+    }
+  }, [result, isLoaded]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (undoSnapshot) {
+      localStorage.setItem("prompt_gateway_undo", JSON.stringify(undoSnapshot));
+    } else {
+      localStorage.removeItem("prompt_gateway_undo");
+    }
+  }, [undoSnapshot, isLoaded]);
 
   /* Auto-scroll to bottom when messages change or loading toggles */
   useEffect(() => {
