@@ -1,0 +1,4 @@
+.vscodeignore
+tsconfig.json
+src/
+*.vsix

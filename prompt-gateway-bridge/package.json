@@ -1,0 +1,49 @@
+{
+  "name": "prompt-gateway-bridge",
+  "displayName": "Prompt Gateway Bridge",
+  "description": "Receives refined prompts from Prompt Gateway web app and pre-fills them into the IDE chat.",
+  "version": "0.1.0",
+  "publisher": "antigravity-prompt-gateway",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "promptGatewayBridge.startServer",
+        "title": "Prompt Gateway: Start Bridge Server"
+      },
+      {
+        "command": "promptGatewayBridge.stopServer",
+        "title": "Prompt Gateway: Stop Bridge Server"
+      }
+    ],
+    "configuration": {
+      "title": "Prompt Gateway Bridge",
+      "properties": {
+        "promptGatewayBridge.port": {
+          "type": "number",
+          "default": 9877,
+          "description": "Port for the local bridge HTTP server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx -y @vscode/vsce package --no-dependencies --allow-missing-repository"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Abhishek6827/antigravity-prompt-gateway.git"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "@types/node": "^20",
+    "typescript": "^5"
+  }
+}
