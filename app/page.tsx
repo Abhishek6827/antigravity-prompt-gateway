@@ -1,65 +1,152 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import type { ChatMessage, PromptResponse } from "@/lib/prompt-schema";
 
 export default function Home() {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [result, setResult] = useState<PromptResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function submitPrompt(text = input) {
+    if (!text.trim() || loading) return;
+
+    const updatedMessages: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: text.trim() },
+    ];
+
+    setMessages(updatedMessages);
+    setInput("");
+    setResult(null);
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/refine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: updatedMessages }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Request failed");
+      }
+
+      setResult(data);
+
+      const assistantSummary =
+        data.status === "needs_clarification"
+          ? `Questions:\n${data.questions.join("\n")}`
+          : data.finalPrompt;
+
+      setMessages([
+        ...updatedMessages,
+        { role: "assistant", content: assistantSummary },
+      ]);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function copyFinalPrompt() {
+    if (!result?.finalPrompt) return;
+    await navigator.clipboard.writeText(result.finalPrompt);
+    alert("Copied. Now paste it into Antigravity.");
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="mx-auto min-h-screen max-w-4xl p-6 md:p-12">
+      <h1 className="text-3xl font-bold">Antigravity Prompt Gateway</h1>
+
+      <p className="mt-2 text-sm text-zinc-500">
+        Hindi/Hinglish mein likho. Unclear hua to questions aayenge;
+        clear hua to Antigravity-ready English prompt milega.
+      </p>
+
+      <textarea
+        value={input}
+        onChange={(event) => setInput(event.target.value)}
+        placeholder="Example: recorder wali problem theek karni hai, AI ki awaz video mein nahi aa rahi..."
+        className="mt-6 min-h-40 w-full rounded-lg border p-4 outline-none focus:ring-2"
+      />
+
+      <button
+        onClick={() => submitPrompt()}
+        disabled={loading || !input.trim()}
+        className="mt-3 rounded-lg bg-black px-5 py-3 font-medium text-white disabled:opacity-50"
+      >
+        {loading ? "Analyzing..." : "Refine Prompt"}
+      </button>
+
+      {result?.status === "needs_clarification" && (
+        <section className="mt-8 rounded-xl border border-amber-300 bg-amber-50 p-5">
+          <h2 className="font-semibold">Pehle yeh clarify karo</h2>
+          <p className="mt-2 text-sm">{result.extractedIntent}</p>
+
+          <div className="mt-4 space-y-2">
+            {result.questions.map((question, index) => (
+              <p key={index}>
+                {index + 1}. {question}
+              </p>
+            ))}
+          </div>
+
+          <textarea
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder="Answers ek saath likh do..."
+            className="mt-4 min-h-28 w-full rounded-lg border bg-white p-3"
+          />
+
+          <button
+            onClick={() => submitPrompt()}
+            disabled={loading || !input.trim()}
+            className="mt-3 rounded-lg bg-black px-5 py-3 text-white disabled:opacity-50"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            Send Answers
+          </button>
+        </section>
+      )}
+
+      {result?.status === "ready" && (
+        <section className="mt-8 rounded-xl border border-emerald-300 bg-emerald-50 p-5">
+          <h2 className="font-semibold">Final Antigravity Prompt</h2>
+
+          <pre className="mt-4 whitespace-pre-wrap rounded-lg bg-white p-4 text-sm">
+            {result.finalPrompt}
+          </pre>
+
+          <button
+            onClick={copyFinalPrompt}
+            className="mt-4 rounded-lg bg-black px-5 py-3 text-white"
           >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+            Copy for Antigravity
+          </button>
+
+          {result.assumptions.length > 0 && (
+            <>
+              <h3 className="mt-6 font-semibold">Assumptions</h3>
+              <ul className="mt-2 list-disc pl-5">
+                {result.assumptions.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          <h3 className="mt-6 font-semibold">Verification checklist</h3>
+          <ul className="mt-2 list-disc pl-5">
+            {result.verificationChecklist.map((item, index) => (
+              <li key={index}>{item}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </main>
   );
 }
