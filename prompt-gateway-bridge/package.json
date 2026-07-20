@@ -8,9 +8,30 @@
     "vscode": "^1.90.0"
   },
   "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:prompt-gateway-bridge.chatView"
+  ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "prompt-gateway-explorer",
+          "title": "Prompt Gateway",
+          "icon": "$(sparkles)"
+        }
+      ]
+    },
+    "views": {
+      "prompt-gateway-explorer": [
+        {
+          "type": "webview",
+          "id": "prompt-gateway-bridge.chatView",
+          "name": "Refine Prompt"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "promptGatewayBridge.startServer",

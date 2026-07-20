@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prompt Gateway</title>
+  <!-- Load Tailwind Play CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: '#8b5cf6',
+            brandHover: '#a78bfa',
+            surface: '#12121a',
+            surfaceHover: '#1a1a26',
+            border: '#1e1e2e',
+            borderLight: '#2a2a3e',
+            muted: '#71717a',
+            secondary: '#a1a1aa',
+            userBubble: '#1c1633',
+            userBubbleBorder: '#2e2454'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root {
+      --background: #0a0a0f;
+      --foreground: #e4e4e7;
+    }
+    body {
+      background-color: var(--background);
+      color: var(--foreground);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1e1e2e;
+      border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #2a2a3e;
+    }
+    @keyframes dotPulse {
+      0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+      40% { opacity: 1; transform: scale(1); }
+    }
+    .animate-dot-pulse {
+      animation: dotPulse 1.4s ease-in-out infinite;
+    }
+    @keyframes messageIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-message-in {
+      animation: messageIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col overflow-hidden text-sm">
+
+  <!-- ── Header ── -->
+  <header class="flex items-center justify-between border-b border-border bg-black/40 px-3 py-2 shrink-0">
+    <div class="flex items-center gap-2">
+      <svg class="w-4 h-4 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3l1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275z"/>
+      </svg>
+      <span class="font-semibold tracking-tight">Prompt Gateway</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span id="status-pill" class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-border text-muted transition-colors duration-200">
+        Ready
+      </span>
+      <button id="new-chat-btn" title="New Chat" class="p-1 rounded hover:bg-surface border border-transparent hover:border-border text-secondary transition-all">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Chat Content ── -->
+  <main id="chat-container" class="flex-1 overflow-y-auto p-3 space-y-3">
+    <!-- Welcome Screen -->
+    <div id="welcome-screen" class="flex flex-col items-center justify-center text-center py-10 px-4">
+      <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand/10 border border-brand/20">
+        <svg class="w-6 h-6 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 3l1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275z"/>
+        </svg>
+      </div>
+      <h3 class="font-semibold text-foreground">Hinglish Prompt Refiner</h3>
+      <p class="mt-1 text-xs text-muted leading-relaxed max-w-xs">
+        Hindi/Hinglish mein likho — direct refined English prompt Antigravity Chat mein send karo.
+      </p>
+    </div>
+
+    <!-- Message List -->
+    <div id="message-list" class="space-y-3"></div>
+
+    <!-- Typing Indicator -->
+    <div id="typing-indicator" class="hidden flex justify-start animate-message-in">
+      <div class="rounded-xl border border-border bg-surface px-3 py-2 flex items-center gap-1">
+        <span class="animate-dot-pulse inline-block h-1.5 w-1.5 rounded-full bg-brand"></span>
+        <span class="animate-dot-pulse inline-block h-1.5 w-1.5 rounded-full bg-brand" style="animation-delay: 0.2s"></span>
+        <span class="animate-dot-pulse inline-block h-1.5 w-1.5 rounded-full bg-brand" style="animation-delay: 0.4s"></span>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── Input Box ── -->
+  <footer class="border-t border-border bg-black/20 p-2 shrink-0">
+    <div class="relative flex items-end gap-1.5 bg-surface border border-border focus-within:border-brand/50 rounded-xl px-2.5 py-1.5 transition-colors">
+      <textarea id="composer" placeholder="Hindi/Hinglish mein likho..." rows="1" class="flex-1 resize-none bg-transparent outline-none max-h-24 text-sm text-foreground placeholder:text-muted py-0.5"></textarea>
+      <button id="send-btn" disabled class="p-1.5 rounded-lg bg-brand text-white hover:bg-brandHover disabled:opacity-40 disabled:hover:bg-brand transition-all flex-shrink-0">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/>
+        </svg>
+      </button>
+    </div>
+    <div class="mt-1.5 flex justify-between px-1 text-[10px] text-muted">
+      <span>Ctrl + Enter to send</span>
+      <span id="undo-indicator" class="hidden">↩ Message sent. Hover bubble to Undo</span>
+    </div>
+  </footer>
+
+  <script>
+    const vscode = acquireVsCodeApi();
+
+    // ── State ──
+    let messages = [];
+    let result = null;
+    let loading = false;
+    let error = null;
+    let copiedIndex = null;
+    let sentIndex = null;
+    let undoSnapshot = null;
+    let composerText = "";
+    let isClarificationMode = false;
+
+    // ── Elements ──
+    const chatContainer = document.getElementById('chat-container');
+    const welcomeScreen = document.getElementById('welcome-screen');
+    const messageList = document.getElementById('message-list');
+    const typingIndicator = document.getElementById('typing-indicator');
+    const composer = document.getElementById('composer');
+    const sendBtn = document.getElementById('send-btn');
+    const statusPill = document.getElementById('status-pill');
+    const newChatBtn = document.getElementById('new-chat-btn');
+    const undoIndicator = document.getElementById('undo-indicator');
+
+    // ── State Updators ──
+    function setStatus(text, type = 'ready') {
+      statusPill.textContent = text;
+      statusPill.className = 'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors duration-200 ';
+      if (type === 'loading') statusPill.className += 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/25';
+      else if (type === 'ready') statusPill.className += 'bg-green-500/10 text-green-400 border border-green-500/25';
+      else if (type === 'clarification') statusPill.className += 'bg-violet-500/10 text-violet-400 border border-violet-500/25';
+      else statusPill.className += 'bg-border text-muted';
+    }
+
+    function scrollBottom() {
+      setTimeout(() => {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }, 50);
+    }
+
+    // ── Send message ──
+    function submitPrompt() {
+      const text = composer.value.trim();
+      if (!text || loading) return;
+
+      // Save undo snapshot
+      undoSnapshot = {
+        messages: [...messages],
+        result: result ? JSON.parse(JSON.stringify(result)) : null,
+        userText: text,
+        isClarificationMode
+      };
+      undoIndicator.classList.remove('hidden');
+
+      messages.push({ role: 'user', content: text });
+      composer.value = "";
+      composer.rows = 1;
+      sendBtn.disabled = true;
+      loading = true;
+      error = null;
+      render();
+
+      vscode.postMessage({
+        command: 'refine',
+        messages: messages
+      });
+    }
+
+    function handleUndo() {
+      if (!undoSnapshot || loading) return;
+      messages = undoSnapshot.messages;
+      result = undoSnapshot.result;
+      isClarificationMode = undoSnapshot.isClarificationMode;
+      composer.value = undoSnapshot.userText;
+      undoSnapshot = null;
+      undoIndicator.classList.add('hidden');
+      render();
+      composer.focus();
+    }
+
+    // ── Communication with Extension ──
+    window.addEventListener('message', event => {
+      const message = event.data;
+      if (message.command === 'refineResponse') {
+        loading = false;
+        const data = message.data;
+        result = data;
+
+        const assistantSummary = data.status === 'needs_clarification'
+          ? `Questions:\n${data.questions.join('\n')}`
+          : data.finalPrompt;
+
+        messages.push({ role: 'assistant', content: assistantSummary });
+        isClarificationMode = data.status === 'needs_clarification';
+
+        if (isClarificationMode) {
+          composer.placeholder = "Answers ek saath likh do...";
+        } else {
+          composer.placeholder = "Hindi/Hinglish mein likho...";
+        }
+
+        render();
+      } else if (message.command === 'refineError') {
+        loading = false;
+        error = message.error;
+        render();
+      }
+    });
+
+    // ── Copy & Send Actions ──
+    function copyPrompt(text, index) {
+      navigator.clipboard.writeText(text).then(() => {
+        copiedIndex = index;
+        render();
+        setTimeout(() => {
+          copiedIndex = null;
+          render();
+        }, 2000);
+      });
+    }
+
+    function sendToChat(text, index) {
+      vscode.postMessage({
+        command: 'sendToChat',
+        prompt: text
+      });
+      sentIndex = index;
+      render();
+      setTimeout(() => {
+        sentIndex = null;
+        render();
+      }, 2000);
+    }
+
+    // ── Render UI ──
+    function render() {
+      // Toggle welcome screen
+      if (messages.length === 0 && !loading) {
+        welcomeScreen.classList.remove('hidden');
+        welcomeScreen.classList.add('flex');
+        messageList.innerHTML = "";
+      } else {
+        welcomeScreen.classList.add('hidden');
+        welcomeScreen.classList.remove('flex');
+      }
+
+      // Toggle typing indicator
+      if (loading) {
+        typingIndicator.classList.remove('hidden');
+        setStatus('Analyzing...', 'loading');
+      } else {
+        typingIndicator.classList.add('hidden');
+        if (isClarificationMode) setStatus('Needs answers', 'clarification');
+        else if (result && result.status === 'ready') setStatus('Ready', 'ready');
+        else setStatus('Ready', 'none');
+      }
+
+      // Render messages
+      messageList.innerHTML = messages.map((msg, i) => {
+        const isUser = msg.role === 'user';
+        const isLastAssistant = msg.role === 'assistant' && i === messages.length - 1;
+
+        if (isUser) {
+          const isLastUser = i === messages.findLastIndex(m => m.role === 'user');
+          const showUndo = isLastUser && undoSnapshot && !loading;
+          return `
+            <div class="flex justify-end animate-message-in">
+              <div class="group relative max-w-[85%]">
+                <div class="rounded-2xl rounded-br-md bg-userBubble border border-userBubbleBorder px-3.5 py-2.5 text-xs text-foreground leading-relaxed">
+                  ${escapeHtml(msg.content)}
+                </div>
+                ${showUndo ? `
+                  <button onclick="handleUndo()" class="absolute -bottom-2.5 right-1.5 opacity-0 group-hover:opacity-100 flex items-center gap-1 rounded bg-surface border border-border hover:border-borderLight hover:text-foreground px-1.5 py-0.5 text-[9px] text-muted transition-all">
+                    <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M3 7v6h6M3 13a9 9 0 0 1 15.36-6.36L21 9"/>
+                    </svg>
+                    Undo
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          `;
+        }
+
+        // Assistant latest responses
+        if (isLastAssistant && result) {
+          if (result.status === 'needs_clarification') {
+            return `
+              <div class="w-full max-w-[95%] animate-message-in rounded-xl border border-border bg-surface overflow-hidden">
+                <div class="border-b border-border bg-amber-500/5 px-3 py-2">
+                  <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-400">Clarification Needed</span>
+                </div>
+                <div class="p-3 space-y-3">
+                  <p class="text-xs text-secondary leading-relaxed">${escapeHtml(result.extractedIntent)}</p>
+                  <div class="space-y-1.5">
+                    ${result.questions.map((q, qidx) => `
+                      <div class="flex gap-2 rounded bg-black/20 p-2">
+                        <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-[10px] font-bold text-amber-400">${qidx + 1}</span>
+                        <p class="text-xs text-foreground leading-relaxed">${escapeHtml(q)}</p>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              </div>
+            `;
+          }
+
+          if (result.status === 'ready') {
+            const showCopied = copiedIndex === i;
+            const showSent = sentIndex === i;
+            return `
+              <div class="w-full max-w-[95%] animate-message-in rounded-xl border border-border bg-surface overflow-hidden">
+                <div class="flex items-center justify-between border-b border-border bg-green-500/5 px-3 py-2">
+                  <span class="text-[10px] font-semibold uppercase tracking-wider text-green-400">Final Prompt</span>
+                  <div class="flex gap-1.5">
+                    <button onclick="copyPrompt(\`${escapeJsString(result.finalPrompt)}\`, ${i})" class="flex items-center gap-1 rounded bg-black/35 hover:bg-black/50 text-[10px] text-secondary hover:text-foreground px-2 py-1 transition-all">
+                      <svg class="w-3 h-3 ${showCopied ? 'text-green-400' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        ${showCopied ? '<path d="M20 6 9 17l-5-5"/>' : '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'}
+                      </svg>
+                      ${showCopied ? 'Copied' : 'Copy'}
+                    </button>
+                    <button onclick="sendToChat(\`${escapeJsString(result.finalPrompt)}\`, ${i})" class="flex items-center gap-1 rounded ${showSent ? 'bg-violet-500/25 text-violet-400' : 'bg-brand text-white hover:bg-brandHover'} text-[10px] px-2 py-1 transition-all">
+                      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        ${showSent ? '<path d="M20 6 9 17l-5-5"/>' : '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09zM12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2zM9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>'}
+                      </svg>
+                      ${showSent ? 'Sent!' : 'Send to Chat'}
+                    </button>
+                  </div>
+                </div>
+                <div class="p-3 space-y-3">
+                  <pre class="whitespace-pre-wrap rounded bg-black/45 p-2 font-mono text-xs border border-border leading-relaxed text-foreground select-text">${escapeHtml(result.finalPrompt)}</pre>
+                  
+                  ${result.assumptions.length > 0 ? `
+                    <div class="border-t border-border/60 pt-2.5">
+                      <span class="text-[9px] font-semibold uppercase tracking-wider text-muted">Assumptions</span>
+                      <ul class="mt-1 space-y-0.5">
+                        ${result.assumptions.map(item => `
+                          <li class="flex items-start gap-1.5 text-xs text-secondary">
+                            <span class="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted"></span>
+                            ${escapeHtml(item)}
+                          </li>
+                        `).join('')}
+                      </ul>
+                    </div>
+                  ` : ''}
+
+                  <div class="border-t border-border/60 pt-2.5">
+                    <span class="text-[9px] font-semibold uppercase tracking-wider text-muted">Verification Checklist</span>
+                    <ul class="mt-1 space-y-0.5">
+                      ${result.verificationChecklist.map(item => `
+                        <li class="flex items-start gap-1.5 text-xs text-secondary">
+                          <svg class="mt-0.5 w-3.5 h-3.5 text-green-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 6 9 17l-5-5"/>
+                          </svg>
+                          ${escapeHtml(item)}
+                        </li>
+                      `).join('')}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            `;
+          }
+        }
+
+        // Older assistant text responses
+        return `
+          <div class="flex justify-start animate-message-in">
+            <div class="max-w-[85%] rounded-2xl rounded-bl-md border border-border bg-surface px-3.5 py-2.5 text-xs text-secondary leading-relaxed select-text">
+              <pre class="whitespace-pre-wrap font-sans">${escapeHtml(msg.content)}</pre>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Error message
+      if (error) {
+        messageList.innerHTML += `
+          <div class="rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400 animate-message-in">
+            <span class="font-semibold">Error:</span> ${escapeHtml(error)}
+            <button onclick="dismissError()" class="ml-2 underline opacity-75 hover:opacity-100">Dismiss</button>
+          </div>
+        `;
+      }
+
+      scrollBottom();
+    }
+
+    function dismissError() {
+      error = null;
+      render();
+    }
+
+    // ── Helper functions ──
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function escapeJsString(str) {
+      if (!str) return '';
+      return str
+        .replace(/\\/g, '\\\\')
+        .replace(/`/g, '\\`')
+        .replace(/\$/g, '\\$')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
+    }
+
+    // ── Input Event Listeners ──
+    composer.addEventListener('input', () => {
+      composer.rows = 1;
+      const computedRows = Math.min(4, Math.floor(composer.scrollHeight / 20));
+      composer.rows = computedRows;
+      sendBtn.disabled = !composer.value.trim() || loading;
+    });
+
+    composer.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        submitPrompt();
+      }
+    });
+
+    sendBtn.addEventListener('click', submitPrompt);
+
+    newChatBtn.addEventListener('click', () => {
+      if (messages.length > 0 && !confirm("Clear conversation and start a new chat?")) {
+        return;
+      }
+      messages = [];
+      result = null;
+      loading = false;
+      error = null;
+      undoSnapshot = null;
+      isClarificationMode = false;
+      undoIndicator.classList.add('hidden');
+      composer.value = "";
+      composer.rows = 1;
+      composer.placeholder = "Hindi/Hinglish mein likho...";
+      sendBtn.disabled = true;
+      render();
+      composer.focus();
+    });
+
+    // Initial render
+    render();
+    composer.focus();
+  </script>
+</body>
+</html>

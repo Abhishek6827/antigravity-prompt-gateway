@@ -1,10 +1,22 @@
 import * as vscode from "vscode";
 import * as http from "http";
+import * as fs from "fs";
+import * as path from "path";
 
 let server: http.Server | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
+  /* 1. Start background bridge HTTP server */
   startServer(context);
+
+  /* 2. Register Sidebar Webview View Provider */
+  const provider = new PromptGatewayChatProvider(context.extensionUri);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      "prompt-gateway-bridge.chatView",
+      provider,
+    ),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("promptGatewayBridge.startServer", () =>
@@ -18,7 +30,93 @@ export function deactivate() {
   stopServer();
 }
 
-/* ── Server lifecycle ── */
+/* ── Webview View Provider class ── */
+
+class PromptGatewayChatProvider implements vscode.WebviewViewProvider {
+  constructor(private readonly _extensionUri: vscode.Uri) {}
+
+  public resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken,
+  ) {
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [this._extensionUri],
+    };
+
+    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+
+    /* Listen to messages from webview */
+    webviewView.webview.onDidReceiveMessage(async (data) => {
+      switch (data.command) {
+        case "refine": {
+          try {
+            const refined = await this._callRefinementApi(data.messages);
+            webviewView.webview.postMessage({
+              command: "refineResponse",
+              data: refined,
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "Refinement failed.";
+            webviewView.webview.postMessage({
+              command: "refineError",
+              error: msg,
+            });
+          }
+          break;
+        }
+        case "sendToChat": {
+          await vscode.commands.executeCommand("workbench.action.chat.open", {
+            query: data.prompt,
+            isPartialQuery: true,
+          });
+          vscode.window.showInformationMessage(
+            "✨ Prompt sent to Chat — review and press Enter.",
+          );
+          break;
+        }
+      }
+    });
+  }
+
+  private _getHtmlForWebview(webview: vscode.Webview): string {
+    const htmlPath = path.join(this._extensionUri.fsPath, "webview.html");
+    let html = fs.readFileSync(htmlPath, "utf8");
+
+    /* Map local resource paths if needed (currently completely CDN-based, but good practice) */
+    return html;
+  }
+
+  private async _callRefinementApi(messages: any[]): Promise<any> {
+    const targetUrl = "https://antigravity-prompt-gateway-ebon.vercel.app/api/refine";
+    
+    try {
+      const response = await fetch(targetUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ messages }),
+      });
+
+      if (!response.ok) {
+        const errJson = (await response.json().catch(() => ({}))) as any;
+        throw new Error(errJson.error || `HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      throw new Error(
+        error instanceof Error
+          ? `API Request failed: ${error.message}`
+          : "Could not reach the Vercel refinement API.",
+      );
+    }
+  }
+}
+
+/* ── Fallback Server lifecycle ── */
 
 function getPort(): number {
   return vscode.workspace
@@ -28,14 +126,12 @@ function getPort(): number {
 
 function startServer(context: vscode.ExtensionContext) {
   if (server) {
-    vscode.window.showInformationMessage("Prompt Gateway bridge is already running.");
     return;
   }
 
   const port = getPort();
 
   server = http.createServer(async (req, res) => {
-    /* CORS — allow requests from the Prompt Gateway web app */
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -73,7 +169,6 @@ function startServer(context: vscode.ExtensionContext) {
       return;
     }
 
-    /* Health check */
     if (req.method === "GET" && (req.url === "/" || req.url === "/health")) {
       respond(res, 200, { status: "running", port });
       return;
@@ -82,20 +177,9 @@ function startServer(context: vscode.ExtensionContext) {
     respond(res, 404, { error: "Not found" });
   });
 
-  server.listen(port, "127.0.0.1", () => {
-    vscode.window.showInformationMessage(
-      `Prompt Gateway bridge listening on http://127.0.0.1:${port}`,
-    );
-  });
+  server.listen(port, "127.0.0.1");
 
   server.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EADDRINUSE") {
-      vscode.window.showErrorMessage(
-        `Port ${port} is in use. Change promptGatewayBridge.port in settings.`,
-      );
-    } else {
-      vscode.window.showErrorMessage(`Bridge server error: ${err.message}`);
-    }
     server = null;
   });
 
@@ -106,7 +190,6 @@ function stopServer() {
   if (server) {
     server.close();
     server = null;
-    vscode.window.showInformationMessage("Prompt Gateway bridge stopped.");
   }
 }
 
