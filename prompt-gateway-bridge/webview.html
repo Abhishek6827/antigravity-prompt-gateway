@@ -135,15 +135,25 @@
     const vscode = acquireVsCodeApi();
 
     // ── State ──
-    let messages = [];
-    let result = null;
+    const previousState = vscode.getState() || {};
+    let messages = previousState.messages || [];
+    let result = previousState.result || null;
     let loading = false;
     let error = null;
     let copiedIndex = null;
     let sentIndex = null;
-    let undoSnapshot = null;
+    let undoSnapshot = previousState.undoSnapshot || null;
     let composerText = "";
-    let isClarificationMode = false;
+    let isClarificationMode = previousState.isClarificationMode || false;
+
+    function saveState() {
+      vscode.setState({
+        messages,
+        result,
+        undoSnapshot,
+        isClarificationMode
+      });
+    }
 
     // ── Elements ──
     const chatContainer = document.getElementById('chat-container');
@@ -419,6 +429,7 @@
       }
 
       scrollBottom();
+      saveState();
     }
 
     function dismissError() {
