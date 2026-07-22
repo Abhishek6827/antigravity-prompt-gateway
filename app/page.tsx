@@ -304,9 +304,11 @@ export default function Home() {
 
   /* ── Keyboard submit (Enter) ── */
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>, submitFn: () => void) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      if (e.nativeEvent.isComposing) return;
+    const isEnter = e.key === "Enter" || e.keyCode === 13 || e.code === "Enter";
+    if (isEnter && !e.shiftKey) {
+      if (e.nativeEvent.isComposing && e.keyCode === 229) return;
       e.preventDefault();
+      e.stopPropagation();
       submitFn();
     }
   }

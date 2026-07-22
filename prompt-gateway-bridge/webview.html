@@ -544,9 +544,11 @@
     });
 
     composer.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        if (e.isComposing) return;
+      const isEnter = e.key === 'Enter' || e.keyCode === 13 || e.code === 'Enter';
+      if (isEnter && !e.shiftKey) {
+        if (e.isComposing && e.keyCode === 229) return;
         e.preventDefault();
+        e.stopPropagation();
         submitPrompt();
       }
     });
