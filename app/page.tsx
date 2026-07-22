@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { ChatMessage, PromptResponse } from "@/lib/prompt-schema";
 
 /* ── Icons (inline SVGs to avoid deps) ── */
@@ -72,6 +72,25 @@ function ClockIcon({ className = "w-4 h-4" }: { className?: string }) {
   );
 }
 
+function ImageIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <polyline points="21 15 16 10 5 21" />
+    </svg>
+  );
+}
+
+function XIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
 /* ── Typing indicator ── */
 
 function TypingDots() {
@@ -106,6 +125,7 @@ type HistoryItem = {
 export default function Home() {
   const [input, setInput] = useState("");
   const [clarificationAnswer, setClarificationAnswer] = useState("");
+  const [images, setImages] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [result, setResult] = useState<PromptResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -120,6 +140,7 @@ export default function Home() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const clarificationRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function saveToHistory(userPrompt: string, finalPrompt: string) {
     if (!finalPrompt) return;
@@ -218,67 +239,75 @@ export default function Home() {
   }, [result]);
 
   /* ── Core submission logic (unchanged API behavior) ── */
-  const submitPrompt = useCallback(
-    async (text?: string) => {
-      const content = (text ?? input).trim();
-      if (!content || loading) return;
+  /* ── Core submission logic (unchanged API behavior) ── */
+  async function submitPrompt(text?: string) {
+    const contentStr = (text ?? input).trim();
+    if (!contentStr || loading) return;
 
-      const updatedMessages: ChatMessage[] = [
-        ...messages,
-        { role: "user", content },
+    let finalContent: any = contentStr;
+    if (images.length > 0) {
+      finalContent = [
+        { type: "text", text: contentStr },
+        ...images.map(img => ({ type: "image_url", image_url: { url: img } }))
       ];
+    }
 
-      /* Save snapshot for undo */
-      setUndoSnapshot({ messages: [...messages], result, userText: content });
+    const updatedMessages: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: finalContent },
+    ];
 
-      setMessages(updatedMessages);
-      setInput("");
-      setClarificationAnswer("");
-      setResult(null);
-      setError(null);
-      setLoading(true);
+    /* Save snapshot for undo */
+    setUndoSnapshot({ messages: [...messages], result, userText: contentStr });
 
-      try {
-        const response = await fetch("/api/refine", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: updatedMessages }),
-        });
+    setMessages(updatedMessages);
+    setInput("");
+    setImages([]);
+    setClarificationAnswer("");
+    setResult(null);
+    setError(null);
+    setLoading(true);
 
-        const data = await response.json();
+    try {
+      const response = await fetch("/api/refine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: updatedMessages }),
+      });
 
-        if (!response.ok) {
-          throw new Error(data.error || "Request failed");
-        }
+      const data = await response.json();
 
-        setResult(data);
-
-        if (data.status === "ready" && data.finalPrompt) {
-          saveToHistory(content, data.finalPrompt);
-        }
-
-        const assistantSummary =
-          data.status === "needs_clarification"
-            ? `Questions:\n${data.questions.join("\n")}`
-            : data.finalPrompt;
-
-        setMessages([
-          ...updatedMessages,
-          { role: "assistant", content: assistantSummary },
-        ]);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong");
-      } finally {
-        setLoading(false);
+      if (!response.ok) {
+        throw new Error(data.error || "Request failed");
       }
-    },
-    [input, messages, loading],
-  );
+
+      setResult(data);
+
+      if (data.status === "ready" && data.finalPrompt) {
+        saveToHistory(contentStr, data.finalPrompt);
+      }
+
+      const assistantSummary =
+        data.status === "needs_clarification"
+          ? `Questions:\n${data.questions.join("\n")}`
+          : data.finalPrompt;
+
+      setMessages([
+        ...updatedMessages,
+        { role: "assistant", content: assistantSummary },
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   /* ── Submit clarification answer ── */
   function submitClarification() {
-    if (!clarificationAnswer.trim()) return;
-    submitPrompt(clarificationAnswer);
+    const textStr = clarificationAnswer.trim();
+    if (!textStr && images.length === 0) return;
+    submitPrompt(textStr);
   }
 
   /* ── Copy final prompt ── */
@@ -330,13 +359,21 @@ export default function Home() {
   /* ── New chat ── */
   function handleNewChat() {
     if (result?.status === "ready" && result.finalPrompt) {
-      const userStr = messages.filter((m) => m.role === "user").map((m) => m.content).join(" | ");
-      saveToHistory(userStr || "Prompt", result.finalPrompt);
+      // Find the last user message text
+      let userText = "Prompt";
+      const lastUserMsg = messages.findLast((m) => m.role === "user");
+      if (lastUserMsg) {
+        userText = typeof lastUserMsg.content === 'string' 
+          ? lastUserMsg.content 
+          : lastUserMsg.content.find((i: any) => i.type === 'text')?.text || "Prompt";
+      }
+      saveToHistory(userText, result.finalPrompt);
     }
     if (messages.length > 0 && !window.confirm("Start a new chat? This will clear the current conversation.")) {
       return;
     }
     setInput("");
+    setImages([]);
     setClarificationAnswer("");
     setMessages([]);
     setResult(null);
@@ -345,6 +382,47 @@ export default function Home() {
     setCopied(false);
     setUndoSnapshot(null);
     inputRef.current?.focus();
+  }
+
+  /* ── Image Upload Handlers ── */
+  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    addImages(files);
+    e.target.value = "";
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData.items;
+    const files = [];
+    for (const item of items) {
+      if (item.type.indexOf("image") === 0) {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length > 0) addImages(files);
+  }
+
+  function addImages(files: File[]) {
+    if (images.length >= 2) {
+      setError("Maximum 2 screenshots allowed.");
+      return;
+    }
+    const toProcess = files.slice(0, 2 - images.length);
+    toProcess.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          setImages(prev => [...prev, e.target!.result as string]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function removeImage(index: number) {
+    setImages(prev => prev.filter((_, i) => i !== index));
   }
 
   /* ── Determine current phase ── */
@@ -451,11 +529,26 @@ export default function Home() {
             const isLastUser = idx === messages.findLastIndex((m) => m.role === "user");
 
             if (isUser) {
+              const textContent = typeof msg.content === 'string' 
+                ? msg.content 
+                : msg.content.find((i: any) => i.type === 'text')?.text || "";
+              
+              const imageContent = Array.isArray(msg.content) 
+                ? msg.content.filter((i: any) => i.type === 'image_url').map((i: any) => i.image_url.url)
+                : [];
+
               return (
                 <div key={idx} className="flex justify-end animate-message-in">
                   <div className="group relative max-w-[85%]">
                     <div className="rounded-2xl rounded-br-md bg-[var(--user-bubble)] border border-[var(--user-bubble-border)] px-4 py-3 text-sm text-[var(--foreground)] leading-relaxed shadow-sm">
-                      {msg.content}
+                      {imageContent.length > 0 && (
+                        <div className="flex gap-2 mb-2 overflow-x-auto">
+                          {imageContent.map((imgUrl, i) => (
+                            <img key={i} src={imgUrl} alt="uploaded" className="h-20 w-auto rounded object-cover border border-[var(--border)]" />
+                          ))}
+                        </div>
+                      )}
+                      {textContent}
                     </div>
                     {/* Undo button for the last user message */}
                     {isLastUser && undoSnapshot && !loading && (
@@ -479,6 +572,7 @@ export default function Home() {
                   <ClarificationCard
                     extractedIntent={result.extractedIntent}
                     questions={result.questions}
+                    onNewChat={handleNewChat}
                   />
                 )}
                 {isReady && idx === messages.length - 1 && (
@@ -518,49 +612,75 @@ export default function Home() {
       {/* ── Input composer ── */}
       <footer className="border-t border-[var(--border)] bg-[var(--background)]/80 px-4 py-4 backdrop-blur-xl md:px-6">
         <div className="mx-auto max-w-2xl">
-          {needsClarification ? (
-            /* Clarification answer input */
-            <div className="flex gap-3">
-              <textarea
-                ref={clarificationRef}
-                value={clarificationAnswer}
-                onChange={(e) => setClarificationAnswer(e.target.value)}
-                onKeyDown={(e) => handleKeyDown(e, submitClarification)}
-                placeholder="Answers ek saath likh do…"
-                rows={2}
-                className="flex-1 resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition-colors duration-200 hover:border-[var(--border-light)]"
-              />
-              <button
-                onClick={submitClarification}
-                disabled={loading || !clarificationAnswer.trim()}
-                className="self-end rounded-xl bg-[var(--accent)] p-3 text-white transition-all duration-200 hover:bg-[var(--accent-hover)] hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
-              >
-                <SendIcon className="w-5 h-5" />
-              </button>
-            </div>
-          ) : (
-            /* Initial prompt input */
-            <div className="flex gap-3">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) =>
-                  handleKeyDown(e, () => submitPrompt())
-                }
-                placeholder="Hindi/Hinglish mein likho… e.g. recorder wali problem theek karni hai"
-                rows={2}
-                className="flex-1 resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition-colors duration-200 hover:border-[var(--border-light)]"
-              />
-              <button
-                onClick={() => submitPrompt()}
-                disabled={loading || !input.trim()}
-                className="self-end rounded-xl bg-[var(--accent)] p-3 text-white transition-all duration-200 hover:bg-[var(--accent-hover)] hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
-              >
-                <SendIcon className="w-5 h-5" />
-              </button>
+          {error && (
+            <div className="mb-3 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400 animate-message-in flex justify-between items-center">
+              <span><span className="font-semibold">Error:</span> {error}</span>
+              <button onClick={() => setError(null)} className="underline opacity-75 hover:opacity-100">Dismiss</button>
             </div>
           )}
+          
+          {images.length > 0 && (
+            <div className="flex gap-2 mb-3">
+              {images.map((img, i) => (
+                <div key={i} className="relative group">
+                  <img src={img} alt="upload preview" className="h-16 w-16 object-cover rounded-lg border border-[var(--border)]" />
+                  <button onClick={() => removeImage(i)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <XIcon className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <input 
+              type="file" 
+              accept="image/*" 
+              multiple 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={handleImageUpload} 
+            />
+            <textarea
+              ref={needsClarification ? clarificationRef : inputRef}
+              value={needsClarification ? clarificationAnswer : input}
+              onChange={(e) => {
+                if (needsClarification) setClarificationAnswer(e.target.value);
+                else setInput(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (needsClarification) submitClarification();
+                  else submitPrompt();
+                }
+              }}
+              onPaste={handlePaste}
+              placeholder={needsClarification ? "Answers ek saath likh do... (or attach a screenshot)" : "Hindi/Hinglish mein likho… e.g. recorder wali problem theek karni hai"}
+              rows={2}
+              className="flex-1 resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition-colors duration-200 hover:border-[var(--border-light)]"
+            />
+            <div className="flex flex-col gap-2 justify-end">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading || images.length >= 2}
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2.5 text-[var(--secondary)] transition-all duration-200 hover:border-[var(--border-light)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] disabled:opacity-40 disabled:hover:bg-[var(--surface)]"
+                title="Attach Screenshot"
+              >
+                <ImageIcon className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => {
+                  if (needsClarification) submitClarification();
+                  else submitPrompt();
+                }}
+                disabled={loading || (!(needsClarification ? clarificationAnswer : input).trim() && images.length === 0)}
+                className="rounded-xl bg-[var(--accent)] p-2.5 text-white transition-all duration-200 hover:bg-[var(--accent-hover)] hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
+              >
+                <SendIcon className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
           <p className="mt-2 text-center text-[11px] text-[var(--muted)]">
             Enter to send, Shift + Enter for new line
           </p>
@@ -653,17 +773,27 @@ export default function Home() {
 function ClarificationCard({
   extractedIntent,
   questions,
+  onNewChat,
 }: {
   extractedIntent: string;
   questions: string[];
+  onNewChat?: () => void;
 }) {
   return (
     <div className="glass-surface overflow-hidden animate-message-in">
       {/* Header */}
-      <div className="border-b border-[var(--border)] bg-amber-500/5 px-4 py-3">
+      <div className="border-b border-[var(--border)] bg-amber-500/5 px-4 py-3 flex items-center justify-between">
         <p className="text-xs font-semibold uppercase tracking-wider text-amber-400">
           Clarification needed
         </p>
+        {onNewChat && (
+          <button
+            onClick={onNewChat}
+            className="text-xs text-[var(--secondary)] hover:text-[var(--foreground)] underline transition-colors"
+          >
+            Start New Prompt
+          </button>
+        )}
       </div>
 
       <div className="px-4 py-4 space-y-4">

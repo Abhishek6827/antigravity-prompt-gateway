@@ -140,8 +140,17 @@
 
   <!-- ── Input Box ── -->
   <footer class="border-t border-border bg-black/20 p-2 shrink-0">
+    <div id="image-preview-container" class="hidden flex gap-2 mb-2 px-1 overflow-x-auto"></div>
     <div class="relative flex items-end gap-1.5 bg-surface border border-border focus-within:border-brand/50 rounded-xl px-2.5 py-1.5 transition-colors">
+      <input type="file" id="file-input" accept="image/*" multiple class="hidden" />
       <textarea id="composer" placeholder="Hindi/Hinglish mein likho..." rows="1" class="flex-1 resize-none bg-transparent outline-none max-h-24 text-sm text-foreground placeholder:text-muted py-0.5"></textarea>
+      <button id="attach-btn" title="Attach Screenshot" class="p-1.5 rounded-lg text-secondary hover:text-foreground hover:bg-surfaceHover transition-all flex-shrink-0 disabled:opacity-40">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
+      </button>
       <button id="send-btn" disabled class="p-1.5 rounded-lg bg-brand text-white hover:bg-brandHover disabled:opacity-40 disabled:hover:bg-brand transition-all flex-shrink-0">
         <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/>
@@ -168,6 +177,7 @@
     let undoSnapshot = previousState.undoSnapshot || null;
     let composerText = "";
     let isClarificationMode = previousState.isClarificationMode || false;
+    let images = [];
 
     function saveState() {
       vscode.setState({
@@ -185,6 +195,9 @@
     const typingIndicator = document.getElementById('typing-indicator');
     const composer = document.getElementById('composer');
     const sendBtn = document.getElementById('send-btn');
+    const attachBtn = document.getElementById('attach-btn');
+    const fileInput = document.getElementById('file-input');
+    const imagePreviewContainer = document.getElementById('image-preview-container');
     const statusPill = document.getElementById('status-pill');
     const newChatBtn = document.getElementById('new-chat-btn');
     const undoIndicator = document.getElementById('undo-indicator');
@@ -257,7 +270,15 @@
     // ── Send message ──
     function submitPrompt() {
       const text = composer.value.trim();
-      if (!text || loading) return;
+      if ((!text && images.length === 0) || loading) return;
+
+      let finalContent = text;
+      if (images.length > 0) {
+        finalContent = [
+          { type: "text", text: text },
+          ...images.map(img => ({ type: "image_url", image_url: { url: img } }))
+        ];
+      }
 
       // Save undo snapshot
       undoSnapshot = {
@@ -268,10 +289,14 @@
       };
       undoIndicator.classList.remove('hidden');
 
-      messages.push({ role: 'user', content: text });
+      messages.push({ role: 'user', content: finalContent });
       composer.value = "";
       composer.rows = 1;
+      images = [];
+      renderImagePreviews();
+      
       sendBtn.disabled = true;
+      attachBtn.disabled = false;
       loading = true;
       error = null;
       render();
@@ -303,7 +328,9 @@
         result = data;
 
         if (data.status === 'ready' && data.finalPrompt) {
-          saveHistoryItem(messages.find(m => m.role === 'user')?.content || '', data.finalPrompt);
+          const userStr = messages.find(m => m.role === 'user')?.content || '';
+          const finalUserStr = typeof userStr === 'string' ? userStr : (userStr.find(i => i.type === 'text')?.text || '');
+          saveHistoryItem(finalUserStr, data.finalPrompt);
         }
 
         const assistantSummary = data.status === 'needs_clarification'
@@ -383,11 +410,29 @@
         if (isUser) {
           const isLastUser = i === messages.findLastIndex(m => m.role === 'user');
           const showUndo = isLastUser && undoSnapshot && !loading;
+          
+          let textContent = msg.content;
+          let imageContent = [];
+          if (Array.isArray(msg.content)) {
+            textContent = msg.content.find(item => item.type === 'text')?.text || '';
+            imageContent = msg.content.filter(item => item.type === 'image_url').map(item => item.image_url.url);
+          }
+
+          let imagesHtml = '';
+          if (imageContent.length > 0) {
+            imagesHtml = '<div class="flex gap-2 mb-2 overflow-x-auto">';
+            imageContent.forEach(url => {
+              imagesHtml += '<img src="' + url + '" class="h-16 w-auto rounded object-cover border border-userBubbleBorder" />';
+            });
+            imagesHtml += '</div>';
+          }
+
           return `
             <div class="flex justify-end animate-message-in">
               <div class="group relative max-w-[85%]">
                 <div class="rounded-2xl rounded-br-md bg-userBubble border border-userBubbleBorder px-3.5 py-2.5 text-xs text-foreground leading-relaxed">
-                  ${escapeHtml(msg.content)}
+                  ${imagesHtml}
+                  ${escapeHtml(textContent)}
                 </div>
                 ${showUndo ? `
                   <button onclick="handleUndo()" class="absolute -bottom-2.5 right-1.5 opacity-0 group-hover:opacity-100 flex items-center gap-1 rounded bg-surface border border-border hover:border-borderLight hover:text-foreground px-1.5 py-0.5 text-[9px] text-muted transition-all">
@@ -539,7 +584,7 @@
       composer.rows = 1;
       const computedRows = Math.min(4, Math.floor(composer.scrollHeight / 20));
       composer.rows = computedRows;
-      sendBtn.disabled = !composer.value.trim() || loading;
+      sendBtn.disabled = (!composer.value.trim() && images.length === 0) || loading;
     });
 
     composer.addEventListener('keydown', (e) => {
@@ -552,12 +597,87 @@
       }
     });
 
+    composer.addEventListener('paste', (e) => {
+      const items = e.clipboardData.items;
+      const files = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') === 0) {
+          const file = items[i].getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        addImages(files);
+      }
+    });
+
+    attachBtn.addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length > 0) {
+        addImages(files);
+      }
+      e.target.value = '';
+    });
+
+    function addImages(files) {
+      if (images.length >= 2) {
+        error = "Maximum 2 screenshots allowed.";
+        render();
+        return;
+      }
+      const toProcess = files.slice(0, 2 - images.length);
+      toProcess.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          if (e.target?.result) {
+            images.push(e.target.result);
+            renderImagePreviews();
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function removeImage(index) {
+      images.splice(index, 1);
+      renderImagePreviews();
+    }
+
+    function renderImagePreviews() {
+      if (images.length === 0) {
+        imagePreviewContainer.classList.add('hidden');
+        imagePreviewContainer.innerHTML = '';
+      } else {
+        imagePreviewContainer.classList.remove('hidden');
+        imagePreviewContainer.innerHTML = images.map((img, i) => 
+          '<div class="relative group">' +
+            '<img src="' + img + '" class="h-12 w-12 object-cover rounded-md border border-border" />' +
+            '<button onclick="removeImage(' + i + ')" class="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">' +
+              '<svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>' +
+            '</button>' +
+          '</div>'
+        ).join('');
+      }
+      sendBtn.disabled = (!composer.value.trim() && images.length === 0) || loading;
+      attachBtn.disabled = images.length >= 2 || loading;
+    }
+
     sendBtn.addEventListener('click', submitPrompt);
 
     newChatBtn.addEventListener('click', () => {
       if (result && result.finalPrompt) {
-        const userStr = messages.filter(m => m.role === 'user').map(m => m.content).join(' | ');
-        saveHistoryItem(userStr || 'Prompt', result.finalPrompt);
+        let userStr = "Prompt";
+        const lastUserMsg = messages.findLast(m => m.role === 'user');
+        if (lastUserMsg) {
+          userStr = typeof lastUserMsg.content === 'string' 
+            ? lastUserMsg.content 
+            : (lastUserMsg.content.find(i => i.type === 'text')?.text || "Prompt");
+        }
+        saveHistoryItem(userStr, result.finalPrompt);
       }
       messages = [];
       result = null;
@@ -566,10 +686,13 @@
       undoSnapshot = null;
       isClarificationMode = false;
       undoIndicator.classList.add('hidden');
+      images = [];
+      renderImagePreviews();
       composer.value = "";
       composer.rows = 1;
       composer.placeholder = "Hindi/Hinglish mein likho...";
       sendBtn.disabled = true;
+      attachBtn.disabled = false;
       render();
       composer.focus();
     });

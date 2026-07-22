@@ -12,6 +12,6 @@ export const promptResponseSchema = z.object({
 export type PromptResponse = z.infer<typeof promptResponseSchema>;
 
 export type ChatMessage = {
-    role: "user" | "assistant";
-    content: string;
+    role: "user" | "assistant" | "system";
+    content: string | any[];
 };
