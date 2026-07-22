@@ -64,6 +64,14 @@ function RocketIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
   );
 }
 
+function ClockIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
 /* ── Typing indicator ── */
 
 function TypingDots() {
@@ -88,6 +96,13 @@ type UndoSnapshot = {
   userText: string;
 };
 
+type HistoryItem = {
+  id: number;
+  timestamp: string;
+  userPrompt: string;
+  finalPrompt: string;
+};
+
 export default function Home() {
   const [input, setInput] = useState("");
   const [clarificationAnswer, setClarificationAnswer] = useState("");
@@ -98,17 +113,37 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [sent, setSent] = useState(false);
   const [undoSnapshot, setUndoSnapshot] = useState<UndoSnapshot | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const clarificationRef = useRef<HTMLTextAreaElement>(null);
 
+  function saveToHistory(userPrompt: string, finalPrompt: string) {
+    if (!finalPrompt) return;
+    const newItem: HistoryItem = {
+      id: Date.now(),
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      userPrompt,
+      finalPrompt,
+    };
+    setHistory((prev) => {
+      const updated = [newItem, ...prev.filter((h) => h.finalPrompt !== finalPrompt)].slice(0, 30);
+      try {
+        localStorage.setItem("prompt_gateway_history", JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  }
+
   // Load from localStorage on mount
   useEffect(() => {
     const savedMessages = localStorage.getItem("prompt_gateway_messages");
     const savedResult = localStorage.getItem("prompt_gateway_result");
     const savedUndo = localStorage.getItem("prompt_gateway_undo");
+    const savedHistory = localStorage.getItem("prompt_gateway_history");
 
     if (savedMessages) {
       try {
@@ -130,6 +165,13 @@ export default function Home() {
         setUndoSnapshot(JSON.parse(savedUndo));
       } catch (e) {
         console.error("Failed to parse saved undo snapshot", e);
+      }
+    }
+    if (savedHistory) {
+      try {
+        setHistory(JSON.parse(savedHistory));
+      } catch (e) {
+        console.error("Failed to parse saved history", e);
       }
     }
     setIsLoaded(true);
@@ -211,6 +253,10 @@ export default function Home() {
 
         setResult(data);
 
+        if (data.status === "ready" && data.finalPrompt) {
+          saveToHistory(content, data.finalPrompt);
+        }
+
         const assistantSummary =
           data.status === "needs_clarification"
             ? `Questions:\n${data.questions.join("\n")}`
@@ -283,6 +329,10 @@ export default function Home() {
 
   /* ── New chat ── */
   function handleNewChat() {
+    if (result?.status === "ready" && result.finalPrompt) {
+      const userStr = messages.filter((m) => m.role === "user").map((m) => m.content).join(" | ");
+      saveToHistory(userStr || "Prompt", result.finalPrompt);
+    }
     if (messages.length > 0 && !window.confirm("Start a new chat? This will clear the current conversation.")) {
       return;
     }
@@ -339,10 +389,17 @@ export default function Home() {
           </h1>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${statusColor()}`}>
             {statusText()}
           </span>
+          <button
+            onClick={() => setShowHistory(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--secondary)] transition-all duration-200 hover:border-[var(--border-light)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+          >
+            <ClockIcon className="w-3.5 h-3.5" />
+            History
+          </button>
           <button
             onClick={handleNewChat}
             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--secondary)] transition-all duration-200 hover:border-[var(--border-light)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
@@ -509,6 +566,80 @@ export default function Home() {
           </p>
         </div>
       </footer>
+
+      {/* ── History Drawer Modal ── */}
+      {showHistory && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/80 p-4 backdrop-blur-md animate-message-in">
+          <div className="mx-auto flex w-full max-w-2xl items-center justify-between border-b border-[var(--border)] pb-3 mb-3 shrink-0">
+            <div className="flex items-center gap-2">
+              <ClockIcon className="w-5 h-5 text-[var(--accent)]" />
+              <h3 className="text-sm font-semibold text-[var(--foreground)]">Prompt History</h3>
+            </div>
+            <button
+              onClick={() => setShowHistory(false)}
+              className="rounded-lg p-1 text-sm text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="mx-auto w-full max-w-2xl flex-1 overflow-y-auto space-y-3 pr-1">
+            {history.length === 0 ? (
+              <div className="py-16 text-center text-xs text-[var(--muted)]">
+                No history saved yet. Refine a prompt to see it here!
+              </div>
+            ) : (
+              history.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3.5 space-y-2 transition-all hover:border-[var(--accent)]/40"
+                >
+                  <div className="flex items-center justify-between text-xs text-[var(--muted)]">
+                    <span className="truncate max-w-[250px] font-mono text-[var(--secondary)]">{item.userPrompt}</span>
+                    <span>{item.timestamp}</span>
+                  </div>
+                  <pre className="whitespace-pre-wrap rounded-lg border border-[var(--border)]/50 bg-black/40 p-2.5 font-mono text-xs text-[var(--foreground)] select-text">
+                    {item.finalPrompt}
+                  </pre>
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(item.finalPrompt);
+                      }}
+                      className="rounded-lg border border-[var(--border)] bg-black/30 px-2.5 py-1 text-xs text-[var(--secondary)] hover:text-[var(--foreground)] transition-colors"
+                    >
+                      Copy
+                    </button>
+                    <button
+                      onClick={() => {
+                        setInput(item.finalPrompt);
+                        setShowHistory(false);
+                        inputRef.current?.focus();
+                      }}
+                      className="rounded-lg bg-[var(--accent)] px-2.5 py-1 text-xs text-white hover:bg-[var(--accent-hover)] transition-colors"
+                    >
+                      Use Prompt
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="mx-auto flex w-full max-w-2xl justify-between border-t border-[var(--border)] pt-3 mt-3 text-xs text-[var(--muted)] shrink-0">
+            <button
+              onClick={() => {
+                setHistory([]);
+                localStorage.removeItem("prompt_gateway_history");
+              }}
+              className="hover:text-red-400 transition-colors"
+            >
+              Clear History
+            </button>
+            <span>Saved locally in browser</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

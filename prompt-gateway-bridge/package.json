@@ -3,7 +3,7 @@
   "displayName": "Prompt Gateway Bridge",
   "description": "Receives refined prompts from Prompt Gateway web app and pre-fills them into the IDE chat.",
   "version": "0.1.0",
-  "icon": "sparkles.svg",
+  "icon": "icon.png",
   "publisher": "antigravity-prompt-gateway",
   "engines": {
     "vscode": "^1.90.0"

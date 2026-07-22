@@ -555,6 +555,10 @@
     sendBtn.addEventListener('click', submitPrompt);
 
     newChatBtn.addEventListener('click', () => {
+      if (result && result.finalPrompt) {
+        const userStr = messages.filter(m => m.role === 'user').map(m => m.content).join(' | ');
+        saveHistoryItem(userStr || 'Prompt', result.finalPrompt);
+      }
       messages = [];
       result = null;
       loading = false;
