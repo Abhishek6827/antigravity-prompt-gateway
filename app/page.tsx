@@ -302,9 +302,9 @@ export default function Home() {
   const needsClarification = result?.status === "needs_clarification";
   const isReady = result?.status === "ready";
 
-  /* ── Keyboard submit (Ctrl/Cmd + Enter) ── */
+  /* ── Keyboard submit (Enter) ── */
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>, submitFn: () => void) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submitFn();
     }
@@ -505,7 +505,7 @@ export default function Home() {
             </div>
           )}
           <p className="mt-2 text-center text-[11px] text-[var(--muted)]">
-            Ctrl + Enter to send
+            Enter to send, Shift + Enter for new line
           </p>
         </div>
       </footer>
