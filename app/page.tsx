@@ -305,6 +305,7 @@ export default function Home() {
   /* ── Keyboard submit (Enter) ── */
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>, submitFn: () => void) {
     if (e.key === "Enter" && !e.shiftKey) {
+      if (e.nativeEvent.isComposing) return;
       e.preventDefault();
       submitFn();
     }
@@ -350,106 +351,104 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ── Chat area ── */}
+      {/* ── Chat messages list ── */}
       <main className="flex-1 overflow-y-auto px-4 py-6 md:px-6">
-        <div className="mx-auto max-w-2xl space-y-4">
-
-          {/* Empty state */}
+        <div className="mx-auto max-w-2xl space-y-6">
+          {/* Welcome state */}
           {isEmpty && (
-            <div className="flex flex-col items-center justify-center py-24 text-center animate-slide-up">
-              <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--accent-subtle)] ring-1 ring-[var(--accent)]/20">
-                <SparklesIcon className="w-8 h-8 text-[var(--accent)]" />
+            <div className="flex flex-col items-center justify-center text-center py-12 px-4 animate-message-in">
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--accent)]/10 border border-[var(--accent)]/20 shadow-lg shadow-[var(--accent)]/5">
+                <SparklesIcon className="w-7 h-7 text-[var(--accent)]" />
               </div>
-              <h2 className="text-xl font-semibold text-[var(--foreground)]">
+              <h2 className="text-xl font-bold tracking-tight text-[var(--foreground)] mb-2">
                 Prompt Gateway
               </h2>
-              <p className="mt-2 max-w-sm text-sm leading-relaxed text-[var(--muted)]">
-                Hindi ya Hinglish mein likho — agar kuch unclear hoga to
-                questions aayenge, warna seedha Antigravity-ready English prompt
-                milega.
+              <p className="text-sm text-[var(--secondary)] max-w-md leading-relaxed mb-6">
+                Apna raw intent Hindi, Hinglish ya English mein likho. AI context analyze karke Antigravity ke liye optimized prompt banayega.
               </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-lg text-left">
+                {[
+                  "recorder wali problem theek karni hai",
+                  "FastAPI setup setup karo with PostgreSQL",
+                  "Docker image generate karo Python app ke liye",
+                  "UI design responsive banao with Tailwind"
+                ].map((example, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setInput(example); inputRef.current?.focus(); }}
+                    className="p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-light)] hover:bg-[var(--surface-hover)] text-xs text-[var(--secondary)] hover:text-[var(--foreground)] transition-all duration-200 text-left flex items-center justify-between group"
+                  >
+                    <span className="truncate pr-2">{example}</span>
+                    <span className="text-[var(--muted)] group-hover:text-[var(--accent)] transition-colors">→</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
-          {/* Message bubbles */}
-          {messages.map((msg, i) => {
+          {/* Render chat history */}
+          {messages.map((msg, idx) => {
             const isUser = msg.role === "user";
-            const isLastAssistant =
-              msg.role === "assistant" && i === messages.length - 1;
+            const isLastUser = idx === messages.findLastIndex((m) => m.role === "user");
 
-            return (
-              <div
-                key={i}
-                className={`flex animate-message-in ${isUser ? "justify-end" : "justify-start"}`}
-                style={{ animationDelay: `${Math.min(i * 0.05, 0.3)}s` }}
-              >
-                {isUser ? (
-                  /* ── User bubble ── */
+            if (isUser) {
+              return (
+                <div key={idx} className="flex justify-end animate-message-in">
                   <div className="group relative max-w-[85%]">
-                    <div className="rounded-2xl rounded-br-md bg-[var(--user-bubble)] border border-[var(--user-bubble-border)] px-4 py-3 text-sm leading-relaxed text-[var(--foreground)]">
+                    <div className="rounded-2xl rounded-br-md bg-[var(--user-bubble)] border border-[var(--user-bubble-border)] px-4 py-3 text-sm text-[var(--foreground)] leading-relaxed shadow-sm">
                       {msg.content}
                     </div>
-                    {/* Undo button — show on last user message when snapshot exists */}
-                    {undoSnapshot && !loading && i === messages.findLastIndex((m) => m.role === "user") && (
+                    {/* Undo button for the last user message */}
+                    {isLastUser && undoSnapshot && !loading && (
                       <button
                         onClick={handleUndo}
-                        className="absolute -bottom-2 right-2 inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--muted)] opacity-0 transition-all duration-200 group-hover:opacity-100 hover:border-[var(--border-light)] hover:text-[var(--foreground)]"
+                        className="absolute -bottom-3 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-medium text-[var(--secondary)] hover:text-[var(--foreground)] hover:bg-[var(--border)] shadow-sm"
                       >
-                        <UndoIcon className="w-3 h-3" />
+                        <UndoIcon />
                         Undo
                       </button>
                     )}
                   </div>
-                ) : isLastAssistant && result ? (
-                  /* ── Structured assistant response (latest only) ── */
-                  <div className="w-full max-w-[90%]">
-                    {needsClarification && (
-                      <ClarificationCard
-                        extractedIntent={result.extractedIntent}
-                        questions={result.questions}
-                      />
-                    )}
-                    {isReady && (
-                      <FinalPromptCard
-                        result={result}
-                        copied={copied}
-                        sent={sent}
-                        onCopy={copyFinalPrompt}
-                        onSend={sendToAntigravity}
-                      />
-                    )}
-                  </div>
-                ) : (
-                  /* ── Older assistant text bubble ── */
-                  <div className="max-w-[85%] rounded-2xl rounded-bl-md glass-surface px-4 py-3 text-sm leading-relaxed text-[var(--secondary)]">
-                    <pre className="whitespace-pre-wrap font-sans">
-                      {msg.content}
-                    </pre>
+                </div>
+              );
+            }
+
+            /* Assistant messages */
+            return (
+              <div key={idx} className="space-y-4">
+                {needsClarification && idx === messages.length - 1 && (
+                  <ClarificationCard
+                    extractedIntent={result.extractedIntent}
+                    questions={result.questions}
+                  />
+                )}
+                {isReady && idx === messages.length - 1 && (
+                  <FinalPromptCard
+                    result={result}
+                    copied={copied}
+                    sent={sent}
+                    onCopy={copyFinalPrompt}
+                    onSend={sendToAntigravity}
+                  />
+                )}
+                {/* Fallback plain text summary if older message */}
+                {!((needsClarification || isReady) && idx === messages.length - 1) && (
+                  <div className="flex justify-start animate-message-in">
+                    <div className="max-w-[85%] rounded-2xl rounded-bl-md glass-surface px-4 py-3 text-sm text-[var(--secondary)] leading-relaxed">
+                      <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
+                    </div>
                   </div>
                 )}
               </div>
             );
           })}
 
-          {/* Loading indicator */}
+          {/* Typing indicator */}
           {loading && (
             <div className="flex justify-start animate-message-in">
-              <div className="glass-surface">
+              <div className="glass-surface rounded-2xl rounded-bl-md">
                 <TypingDots />
               </div>
-            </div>
-          )}
-
-          {/* Error banner */}
-          {error && (
-            <div className="animate-message-in rounded-xl border border-[var(--error-border)] bg-[var(--error-bg)] px-4 py-3 text-sm text-red-400">
-              <span className="font-medium">Error:</span> {error}
-              <button
-                onClick={() => setError(null)}
-                className="ml-3 text-xs underline underline-offset-2 opacity-70 hover:opacity-100"
-              >
-                Dismiss
-              </button>
             </div>
           )}
 
@@ -492,12 +491,11 @@ export default function Home() {
                 }
                 placeholder="Hindi/Hinglish mein likho… e.g. recorder wali problem theek karni hai"
                 rows={2}
-                disabled={isReady}
-                className="flex-1 resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition-colors duration-200 hover:border-[var(--border-light)] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition-colors duration-200 hover:border-[var(--border-light)]"
               />
               <button
                 onClick={() => submitPrompt()}
-                disabled={loading || !input.trim() || isReady}
+                disabled={loading || !input.trim()}
                 className="self-end rounded-xl bg-[var(--accent)] p-3 text-white transition-all duration-200 hover:bg-[var(--accent-hover)] hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
               >
                 <SendIcon className="w-5 h-5" />

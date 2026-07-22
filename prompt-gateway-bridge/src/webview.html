@@ -544,6 +544,7 @@
 
     composer.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.isComposing) return;
         e.preventDefault();
         submitPrompt();
       }
