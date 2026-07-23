@@ -30,14 +30,14 @@ function hasImage(messages: any[]): boolean {
     );
 }
 
-function cleanJSONResponse(content: string): string {
+function parseAndValidate(content: string) {
     let cleanContent = content.trim();
     if (cleanContent.startsWith("```json")) {
         cleanContent = cleanContent.replace(/^```json/, "").replace(/```$/, "").trim();
     } else if (cleanContent.startsWith("```")) {
         cleanContent = cleanContent.replace(/^```/, "").replace(/```$/, "").trim();
     }
-    return cleanContent;
+    return promptResponseSchema.parse(JSON.parse(cleanContent));
 }
 
 // Vision Models Fallback Chain
@@ -57,7 +57,7 @@ async function callVisionModelsWithFallback(messages: any[], modifiedSystemPromp
             ],
         });
         const content = completion.choices[0]?.message?.content || "";
-        if (content) return content;
+        if (content) return parseAndValidate(content);
     } catch (e: any) {
         errors.push(`OpenRouter (Qwen): ${e.message}`);
     }
@@ -76,7 +76,7 @@ async function callVisionModelsWithFallback(messages: any[], modifiedSystemPromp
         });
         const msg = completion.choices[0]?.message as any;
         const content = msg?.content || "";
-        if (content) return content;
+        if (content) return parseAndValidate(content);
     } catch (e: any) {
         errors.push(`Groq (Vision): ${e.message}`);
     }
@@ -89,11 +89,11 @@ async function callTextModelsWithFallback(messages: any[]) {
     const errors: string[] = [];
     const textPrompt = SYSTEM_PROMPT;
 
-    // 1. Groq (qwen-2.5-32b)
+    // 1. Groq (qwen-2.5-coder-32b)
     try {
-        console.log("[Text] Trying Groq (qwen-2.5-32b)...");
+        console.log("[Text] Trying Groq (qwen-2.5-coder-32b)...");
         const completion = await groqClient.chat.completions.create({
-            model: "qwen-2.5-32b",
+            model: "qwen-2.5-coder-32b",
             temperature: 0.2,
             max_tokens: 2048,
             response_format: { type: "json_object" },
@@ -104,9 +104,29 @@ async function callTextModelsWithFallback(messages: any[]) {
         });
         const msg = completion.choices[0]?.message as any;
         const content = msg?.content || "";
-        if (content) return content;
+        if (content) return parseAndValidate(content);
     } catch (e: any) {
-        errors.push(`Groq (qwen-2.5-32b): ${e.message}`);
+        errors.push(`Groq (qwen-2.5-coder-32b): ${e.message}`);
+    }
+
+    // 1.5 Groq (llama-3.3-70b-versatile)
+    try {
+        console.log("[Text] Trying Groq (llama-3.3-70b-versatile)...");
+        const completion = await groqClient.chat.completions.create({
+            model: "llama-3.3-70b-versatile",
+            temperature: 0.2,
+            max_tokens: 2048,
+            response_format: { type: "json_object" },
+            messages: [
+                { role: "system", content: textPrompt },
+                ...messages,
+            ],
+        });
+        const msg = completion.choices[0]?.message as any;
+        const content = msg?.content || "";
+        if (content) return parseAndValidate(content);
+    } catch (e: any) {
+        errors.push(`Groq (llama-3.3-70b-versatile): ${e.message}`);
     }
 
     // 2. Cerebras (gpt-oss-120b)
@@ -123,7 +143,7 @@ async function callTextModelsWithFallback(messages: any[]) {
             ],
         });
         const content = completion.choices[0]?.message?.content || "";
-        if (content) return content;
+        if (content) return parseAndValidate(content);
     } catch (e: any) {
         errors.push(`Cerebras (gpt-oss-120b): ${e.message}`);
     }
@@ -142,7 +162,7 @@ async function callTextModelsWithFallback(messages: any[]) {
             ],
         });
         const content = completion.choices[0]?.message?.content || "";
-        if (content) return content;
+        if (content) return parseAndValidate(content);
     } catch (e: any) {
         errors.push(`Cerebras (gemma): ${e.message}`);
     }
@@ -161,7 +181,7 @@ async function callTextModelsWithFallback(messages: any[]) {
             ],
         });
         const content = completion.choices[0]?.message?.content || "";
-        if (content) return content;
+        if (content) return parseAndValidate(content);
     } catch (e: any) {
         errors.push(`Cerebras (llama3.1-8b): ${e.message}`);
     }
@@ -179,28 +199,27 @@ async function callTextModelsWithFallback(messages: any[]) {
             ],
         });
         const content = completion.choices[0]?.message?.content || "";
-        if (content) return content;
+        if (content) return parseAndValidate(content);
     } catch (e: any) {
         errors.push(`Nvidia (llama-3.1-8b): ${e.message}`);
     }
 
-    // 6. OpenRouter (google/gemini-2.5-flash)
+    // 6. OpenRouter (openrouter/free)
     try {
-        console.log("[Text] Trying OpenRouter (google/gemini-2.5-flash)...");
+        console.log("[Text] Trying OpenRouter (openrouter/free)...");
         const completion = await openRouterClient.chat.completions.create({
-            model: "google/gemini-2.5-flash",
+            model: "openrouter/free",
             temperature: 0.2,
             max_tokens: 2048,
-            response_format: { type: "json_object" },
             messages: [
                 { role: "system", content: textPrompt },
                 ...messages,
             ],
         });
         const content = completion.choices[0]?.message?.content || "";
-        if (content) return content;
+        if (content) return parseAndValidate(content);
     } catch (e: any) {
-        errors.push(`OpenRouter (gemini): ${e.message}`);
+        errors.push(`OpenRouter (openrouter/free): ${e.message}`);
     }
 
     throw new Error(`Text models failed:\n${errors.join('\n')}`);
@@ -218,23 +237,20 @@ export async function POST(request: Request) {
         }
 
         const isVisionReq = hasImage(messages);
-        let content = "";
+        let parsed;
 
         if (isVisionReq) {
             const visionInstruction = "\n\nCRITICAL VISION INSTRUCTION: The user has attached an image/screenshot. Carefully analyze the image. You MUST set status to 'ready' (do NOT ask clarification questions) unless the image is completely unreadable. In finalPrompt, write a detailed, implementation-ready prompt that explicitly describes all visual elements, UI components, error messages, layout bugs, or text shown in the screenshot so Antigravity has 100% of the visual context in text format.";
             const modifiedSystemPrompt = SYSTEM_PROMPT + visionInstruction + "\n\nIMPORTANT: You must return ONLY a valid JSON object matching the requested schema. No markdown wrapping, no extra text.";
             
-            content = await callVisionModelsWithFallback(messages, modifiedSystemPrompt);
+            parsed = await callVisionModelsWithFallback(messages, modifiedSystemPrompt);
         } else {
-            content = await callTextModelsWithFallback(messages);
+            parsed = await callTextModelsWithFallback(messages);
         }
 
-        if (!content) {
+        if (!parsed) {
             throw new Error("Empty response from AI provider fallback chain.");
         }
-
-        const cleanContent = cleanJSONResponse(content);
-        const parsed = promptResponseSchema.parse(JSON.parse(cleanContent));
 
         return NextResponse.json(parsed);
     } catch (error) {
