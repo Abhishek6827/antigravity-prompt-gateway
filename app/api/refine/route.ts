@@ -89,27 +89,25 @@ async function callTextModelsWithFallback(messages: any[]) {
     const errors: string[] = [];
     const textPrompt = SYSTEM_PROMPT;
 
-    // 1. Groq (qwen-2.5-coder-32b)
+    // 1. Nvidia (nvidia/nemotron-3-ultra-550b-a55b)
     try {
-        console.log("[Text] Trying Groq (qwen-2.5-coder-32b)...");
-        const completion = await groqClient.chat.completions.create({
-            model: "qwen-2.5-coder-32b",
+        console.log("[Text] Trying Nvidia (nvidia/nemotron-3-ultra-550b-a55b)...");
+        const completion = await nvidiaClient.chat.completions.create({
+            model: "nvidia/nemotron-3-ultra-550b-a55b",
             temperature: 0.2,
             max_tokens: 2048,
-            response_format: { type: "json_object" },
             messages: [
                 { role: "system", content: textPrompt },
                 ...messages,
             ],
         });
-        const msg = completion.choices[0]?.message as any;
-        const content = msg?.content || "";
+        const content = completion.choices[0]?.message?.content || "";
         if (content) return parseAndValidate(content);
     } catch (e: any) {
-        errors.push(`Groq (qwen-2.5-coder-32b): ${e.message}`);
+        errors.push(`Nvidia (nemotron-3-ultra): ${e.message}`);
     }
 
-    // 1.5 Groq (llama-3.3-70b-versatile)
+    // 2. Groq (llama-3.3-70b-versatile)
     try {
         console.log("[Text] Trying Groq (llama-3.3-70b-versatile)...");
         const completion = await groqClient.chat.completions.create({
@@ -129,7 +127,7 @@ async function callTextModelsWithFallback(messages: any[]) {
         errors.push(`Groq (llama-3.3-70b-versatile): ${e.message}`);
     }
 
-    // 2. Cerebras (gpt-oss-120b)
+    // 3. Cerebras (gpt-oss-120b)
     try {
         console.log("[Text] Trying Cerebras (gpt-oss-120b)...");
         const completion = await cerebrasClient.chat.completions.create({
@@ -147,64 +145,8 @@ async function callTextModelsWithFallback(messages: any[]) {
     } catch (e: any) {
         errors.push(`Cerebras (gpt-oss-120b): ${e.message}`);
     }
-    
-    // 3. Cerebras (gemma)
-    try {
-        console.log("[Text] Trying Cerebras (gemma)...");
-        const completion = await cerebrasClient.chat.completions.create({
-            model: "gemma",
-            temperature: 0.2,
-            max_tokens: 2048,
-            response_format: { type: "json_object" },
-            messages: [
-                { role: "system", content: textPrompt },
-                ...messages,
-            ],
-        });
-        const content = completion.choices[0]?.message?.content || "";
-        if (content) return parseAndValidate(content);
-    } catch (e: any) {
-        errors.push(`Cerebras (gemma): ${e.message}`);
-    }
 
-    // 4. Cerebras (llama3.1-8b as safe fallback)
-    try {
-        console.log("[Text] Trying Cerebras (llama3.1-8b)...");
-        const completion = await cerebrasClient.chat.completions.create({
-            model: "llama3.1-8b",
-            temperature: 0.2,
-            max_tokens: 2048,
-            response_format: { type: "json_object" },
-            messages: [
-                { role: "system", content: textPrompt },
-                ...messages,
-            ],
-        });
-        const content = completion.choices[0]?.message?.content || "";
-        if (content) return parseAndValidate(content);
-    } catch (e: any) {
-        errors.push(`Cerebras (llama3.1-8b): ${e.message}`);
-    }
-
-    // 5. Nvidia (meta/llama-3.1-8b-instruct)
-    try {
-        console.log("[Text] Trying Nvidia (meta/llama-3.1-8b-instruct)...");
-        const completion = await nvidiaClient.chat.completions.create({
-            model: "meta/llama-3.1-8b-instruct",
-            temperature: 0.2,
-            max_tokens: 2048,
-            messages: [
-                { role: "system", content: textPrompt },
-                ...messages,
-            ],
-        });
-        const content = completion.choices[0]?.message?.content || "";
-        if (content) return parseAndValidate(content);
-    } catch (e: any) {
-        errors.push(`Nvidia (llama-3.1-8b): ${e.message}`);
-    }
-
-    // 6. OpenRouter (openrouter/free)
+    // 4. OpenRouter (openrouter/free)
     try {
         console.log("[Text] Trying OpenRouter (openrouter/free)...");
         const completion = await openRouterClient.chat.completions.create({
